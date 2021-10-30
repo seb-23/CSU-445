@@ -1,0 +1,165 @@
+class NeuralNetworkClassifier(NeuralNetwork):
+    
+    def makeIndicatorVars(self, T):
+        # Make sure T is two-dimensional. Should be nSamples x 1.
+        '''LECTURE: 3/08'''
+        if T.ndim == 1:
+            T = T.reshape((-1, 1))    
+        return (T == np.unique(T)).astype(int)
+
+    def train(self, X, T, n_epochs, learning_rate, method='sgd', verbose=True):
+        '''
+        train: 
+          X: n_samples x n_inputs matrix of input samples, one per row
+          T: n_samples x n_outputs matrix of target output values, one sample per row
+          n_epochs: number of passes to take through all samples updating weights each pass
+          learning_rate: factor controlling the step size of each update
+          method: is either 'sgd' or 'adam'
+        '''
+
+        # Setup standardization parameters
+        if self.Xmeans is None:
+            self.Xmeans = X.mean(axis=0)
+            self.Xstds = X.std(axis=0)
+            self.Xstds[self.Xstds == 0] = 1  # So we don't divide by zero when standardizing
+            self.Tmeans = T.mean(axis=0)
+            self.Tstds = T.std(axis=0)
+            
+        # Standardize X and T
+        X = (X - self.Xmeans) / self.Xstds
+        X_patches = self._make_patches(X, self.patch_size, self.stride)
+        T = (T - self.Tmeans) / self.Tstds
+        T_indicator_vars = self.makeIndicatorVars(T)
+
+        # Instantiate Optimizers object by giving it vector of all weights
+        optimizer = optimizers.Optimizers(self.all_weights)
+
+        # Define function to convert value from error_f into error in original T units, 
+        # but only if the network has a single output. Multiplying by self.Tstds for 
+        # multiple outputs does not correctly unstandardize the error.
+        if len(self.Tstds) == 1:
+            error_convert_f = lambda err: (np.sqrt(err) * self.Tstds)[0] # to scalar
+        else:
+            error_convert_f = lambda err: np.sqrt(err)[0] # to scalar
+            
+
+        if method == 'sgd':
+
+            error_trace = optimizer.sgd(self.error_f, self.gradient_f,
+                                       fargs=[X_patches, T_indicator_vars], n_epochs=n_epochs,
+                                       learning_rate=learning_rate,
+                                       verbose=verbose,
+                                       error_convert_f=error_convert_f)
+
+        elif method == 'adam':
+
+            error_trace = optimizer.adam(self.error_f, self.gradient_f,
+                                       fargs=[X_patches, T_indicator_vars], n_epochs=n_epochs,
+                                       learning_rate=learning_rate,
+                                       verbose=verbose,
+                                       error_convert_f=error_convert_f)
+
+        else:
+            raise Exception("method must be 'sgd' or 'adam'")
+        
+        self.error_trace = error_trace
+
+        # Return neural network object to allow applying other methods after training.
+        #  Example:    Y = nnet.train(X, T, 100, 0.01).use(X)
+        return self
+    
+   
+    
+    # Function to be minimized by optimizer method, mean squared error
+    def error_f(self, X, T):
+        Ys = self.forward_pass(X)
+        mean_sq_error = np.mean((T - Ys[-1]) ** 2)
+        return mean_sq_error
+
+    # Gradient of function to be minimized for use by optimizer method
+    def gradient_f(self, X, T):
+        '''Assumes forward_pass just called with layer outputs in self.Ys.'''
+        error = T - self.Ys[-1]
+        n_samples = X.shape[0]
+        n_outputs = T.shape[1]
+        delta = - error / (n_samples * n_outputs)
+        n_layers = len(self.n_hiddens_per_layer) + 1
+        # Step backwards through the layers to back-propagate the error (delta)
+        for layeri in range(n_layers - 1, -1, -1):
+            
+            if layeri == 0:
+                # Convolutional layer
+                # delta, backpropagated from a fully-connected layer, has multiple values for each
+                # convolutional unit, for each application of it to each patch.  We must sum the dE_dWs
+                # for all of those delta values by multiplying each delta value for each convolutional
+                # unit by the patch values used to produce the output by the input values for the 
+                # corresponding patch. 
+                # Do this by first reshaping the backed-up delta matrix to the right form.
+                patch_n_values = X_patches.shape[-1]
+                n_conv_units = self.n_hiddens_per_layer[0]
+                delta_reshaped = delta.reshape(-1, n_conv_units)
+                # And we must reshape the convolutional layer input matrix to a compatible shape.
+                conv_layer_inputs_reshaped = self.Ys[0].reshape(-1, patch_n_values)
+                # Now we can calculate the dE_dWs for the convolutional layer with a simple matrix
+                # multiplication.
+                self.dE_dWs[layeri][1:, :] = conv_layer_inputs_reshaped.T @ delta_reshaped
+                self.dE_dWs[layeri][0:1, :] = np.sum(delta_reshaped, axis=0)
+            else:
+                # Fully-connected layers
+                '''IS THIS CORRECT?'''
+                # gradient of all but bias weights
+                self.dE_dWs[layeri][1:, :] = self.Ys[layeri].T @ delta
+                # gradient of just the bias weights
+                self.dE_dWs[layeri][0:1, :] = np.sum(delta, 0)
+                
+            
+            # Back-propagate this layer's delta to previous layer
+            if self.activation_function == 'relu':
+                delta = delta @ self.Ws[layeri][1:, :].T * self.grad_relu(self.Ys[layeri])
+            else:
+                delta = delta @ self.Ws[layeri][1:, :].T * (1 - self.Ys[layeri] ** 2)
+        return self.all_gradients
+
+#     def softmax(self, Y):
+#         '''Apply to final layer weighted sum outputs '''
+#         '''LECTURE:03/29'''
+#         # Trick to avoid overflow
+#         maxY = torch.max(Y, axis=1)[0].reshape((-1,1))
+#         expY = torch.exp(Y - maxY)
+#         denom = torch.sum(expY, axis=1).reshape((-1, 1))
+#         Y = expY / denom
+#         return Y
+    
+    def softmax(self, X):
+        '''LECTURE: 3/08'''
+        fs = np.exp(X @ self.Ws)  # N x K
+        denom = np.sum(fs, axis=1).reshape((-1, 1))
+        gs = fs / denom
+        return gs
+    
+    def use(self, X):
+        '''X assumed to not be standardized. Returns (classes, class_probabilities)'''
+        # Standardize X
+        X = (X - self.Xmeans) / self.Xstds
+        # Convert flattened samples into patches
+        X_patches = self._make_patches(X, self.patch_size, self.stride)
+        Ys = self.forward_pass(X_patches)
+        Y = self.softmax(Ys[-1])
+        classes = self.classes[np.argmax(Y, axis=1)].reshape(-1, 1)
+        return classes, Y
+    
+#     def use(self, X):
+#         '''LECTURE:03/29'''
+#         # Set input matrix to torch.tensors if not already.
+#         if not isinstance(X, torch.Tensor):
+#             X = torch.from_numpy(X).float().to(self.device)
+#         Y = self.forward(X)
+#         probs = self.softmax(Y)
+#         classes = self.classes[torch.argmax(probs, axis=1).cpu().numpy()]
+#         return classes.cpu().numpy(), probs.detach().cpu().numpy()
+
+'''
+Questions for TA:
+* did i implement softmax() correctly?
+* did i implement gradientf() correctly?
+'''

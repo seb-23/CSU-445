@@ -1,0 +1,133 @@
+
+
+
+start6 = time.time()
+n_epochs6 = 500  
+learning_rate6 = 0.01
+hiddens6 = [25]
+
+np.random.seed(22)
+
+nnet6 = NeuralNetworkClassifier(Xtrain6.shape[1], hiddens6, len(classes))
+nnet6.train(Xtrain6, Ttrain6, n_epochs6, learning_rate6, method='sgd', verbose=True)
+
+plt.plot(nnet6.error_trace)
+
+elapsed6 = (time.time() - start6) 
+
+Y_classes16, Y_probs13 = nnet6.use(Xtrain6)
+Y_classes17, Y_probs14 = nnet6.use(Xval6)
+Y_classes18, Y_probs15 = nnet6.use(Xtest6)
+
+result6 = []
+result6.append([hiddens6,
+                100 * np.mean(Y_classes16 == Ttrain6),
+                100 * np.mean(Y_classes17 == Tval6),
+                100 * np.mean(Y_classes18 == Ttest6),
+                elapsed6])
+# load these into a dataframe and give it some column titles
+df6 = pandas.DataFrame(result6, columns=('Hidden Layers','Train','Validate','Test','Time'))
+print("Sixth Network\n", df6)
+
+
+   Hidden Layers   Train  Validate   Test        Time
+0          [25]  23.646     23.81  23.66  227.056754
+
+
+   Hidden Layers   Train  Validate   Test        Time
+0          [10]  22.188     21.99  21.84  205.356657
+
+
+   Hidden Layers  Train  Validate   Test        Time
+0          [15]  29.09     29.38  29.38  213.453194
+
+
+
+
+all the above are sgd
+
+all the below is adam
+
+   Hidden Layers   Train  Validate   Test       Time
+0           [5]  88.762     86.83  86.38  198.28277
+
+   Hidden Layers   Train  Validate   Test        Time
+0          [10]  95.042     91.33  90.64  207.596359
+
+
+   Hidden Layers  Train  Validate  Test        Time
+0          [15]  97.09     92.08  91.4  216.692184
+
+   Hidden Layers   Train  Validate   Test        Time
+0      [20, 25]  99.314     92.56  92.09  242.561359
+
+   Hidden Layers   Train  Validate   Test        Time
+0          [20]  98.272     92.87  92.09  222.514855
+
+
+   Hidden Layers   Train  Validate   Test        Time
+0          [25]  98.866     93.37  92.66  229.497857
+
+   Hidden Layers   Train  Validate   Test        Time
+0          [30]  99.124     93.76  92.97  241.387109
+(best one out of all except for the first one. This confusion matrix had no columns entirely filled with 0s.)
+
+
+
+
+
+'''
+Reasons why these are the worst images:
+1. The network isn't large enough because we can't run a large b/c it would take too long
+2. Certain numbers look like others so the algorithm/s get confused.  For example 2 looks like 5. 3 looks like 8.
+3. This network is not doing so well for these images because... LECTURE 03/17/21
+'''
+
+The network doesn't do well for these particular images because the dataset is very large. The larger a dataset is, the longer it takes to run
+if the hyperparameters in the network remain the same. Hence, because this particular dataset has 50,000 hand drawn images to learn from, even 
+running a network with a small number of hidden layers can have us waiting on the computation for several minutes. This is part of the reason why
+those particular images did not perform so well, it is due to the fact that the dataset is just too large for the time I have to run more 
+expirements. Another reason why the network does not perform well on those particular images is due to the fact that certain numbers look very 
+similar to other numbers. For example, 2 looks like a more accomplished 7; 3 looks like an unfinished 8 and a deformed 5. While 9 gets confused 
+by 7. There is certainly more confusion when making predictions on those particular images which look similar to other images. Also, what could be 
+improved upon are the data transformation techniques. So if we create more data variables from the already established data we can then use 
+that data transformation in our machine learning to extract a better prediction.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
